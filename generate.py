@@ -1,5 +1,7 @@
 # Originally made by Katherine Crowson (https://github.com/crowsonkb, https://twitter.com/RiversHaveWings)
 # The original BigGAN+CLIP method was by https://twitter.com/advadnoun
+from flask import Flask,jsonify
+app = Flask(__name__)
 
 import argparse
 import math
@@ -755,236 +757,244 @@ def train(i):
 
 
 
-i = 0 # Iteration counter
-j = 0 # Zoom video frame counter
-p = 1 # Phrase counter
-smoother = 0 # Smoother counter
-this_video_frame = 0 # for video styling
 
-# Messing with learning rate / optimisers
-#variable_lr = args.step_size
-#optimiser_list = [['Adam',0.075],['AdamW',0.125],['Adagrad',0.2],['Adamax',0.125],['DiffGrad',0.075],['RAdam',0.125],['RMSprop',0.02]]
+@app.route('/xyz')
+def runBotArtist():
 
-# Do it
-try:
-    with tqdm() as pbar:
-        while True:            
-            # Change generated image
-            if args.make_zoom_video:
-                if i % args.zoom_frequency == 0:
-                    out = synth(z)
-                    
-                    # Save image
-                    img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
-                    img = np.transpose(img, (1, 2, 0))
-                    imageio.imwrite('./steps/' + str(j) + '.png', np.array(img))
+    i = 0 # Iteration counter
+    j = 0 # Zoom video frame counter
+    p = 1 # Phrase counter
+    smoother = 0 # Smoother counter
+    this_video_frame = 0 # for video styling
 
-                    # Time to start zooming?                    
-                    if args.zoom_start <= i:
-                        # Convert z back into a Pil image                    
-                        #pil_image = TF.to_pil_image(out[0].cpu())
+    # Messing with learning rate / optimisers
+    #variable_lr = args.step_size
+    #optimiser_list = [['Adam',0.075],['AdamW',0.125],['Adagrad',0.2],['Adamax',0.125],['DiffGrad',0.075],['RAdam',0.125],['RMSprop',0.02]]
+
+    # Do it
+    try:
+        with tqdm() as pbar:
+            while True:            
+                # Change generated image
+                if args.make_zoom_video:
+                    if i % args.zoom_frequency == 0:
+                        out = synth(z)
                         
-                        # Convert NP to Pil image
-                        pil_image = Image.fromarray(np.array(img).astype('uint8'), 'RGB')
-                                                
-                        # Zoom
-                        if args.zoom_scale != 1:
-                            pil_image_zoom = zoom_at(pil_image, sideX/2, sideY/2, args.zoom_scale)
-                        else:
-                            pil_image_zoom = pil_image
-                        
-                        # Shift - https://pillow.readthedocs.io/en/latest/reference/ImageChops.html
-                        if args.zoom_shift_x or args.zoom_shift_y:
-                            # This one wraps the image
-                            pil_image_zoom = ImageChops.offset(pil_image_zoom, args.zoom_shift_x, args.zoom_shift_y)
-                        
-                        # Convert image back to a tensor again
-                        pil_tensor = TF.to_tensor(pil_image_zoom)
-                        
-                        # Re-encode
-                        z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
-                        z_orig = z.clone()
-                        z.requires_grad_(True)
+                        # Save image
+                        img = np.array(out.mul(255).clamp(0, 255)[0].cpu().detach().numpy().astype(np.uint8))[:,:,:]
+                        img = np.transpose(img, (1, 2, 0))
+                        imageio.imwrite('./steps/' + str(j) + '.png', np.array(img))
 
-                        # Re-create optimiser
-                        opt = get_opt(args.optimiser, args.step_size)
-                    
-                    # Next
-                    j += 1
-            
-            # Change text prompt
-            if args.prompt_frequency > 0:
-                if i % args.prompt_frequency == 0 and i > 0:
-                    # In case there aren't enough phrases, just loop
-                    if p >= len(all_phrases):
-                        p = 0
-                    
-                    pMs = []
-                    args.prompts = all_phrases[p]
+                        # Time to start zooming?                    
+                        if args.zoom_start <= i:
+                            # Convert z back into a Pil image                    
+                            #pil_image = TF.to_pil_image(out[0].cpu())
+                            
+                            # Convert NP to Pil image
+                            pil_image = Image.fromarray(np.array(img).astype('uint8'), 'RGB')
+                                                    
+                            # Zoom
+                            if args.zoom_scale != 1:
+                                pil_image_zoom = zoom_at(pil_image, sideX/2, sideY/2, args.zoom_scale)
+                            else:
+                                pil_image_zoom = pil_image
+                            
+                            # Shift - https://pillow.readthedocs.io/en/latest/reference/ImageChops.html
+                            if args.zoom_shift_x or args.zoom_shift_y:
+                                # This one wraps the image
+                                pil_image_zoom = ImageChops.offset(pil_image_zoom, args.zoom_shift_x, args.zoom_shift_y)
+                            
+                            # Convert image back to a tensor again
+                            pil_tensor = TF.to_tensor(pil_image_zoom)
+                            
+                            # Re-encode
+                            z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
+                            z_orig = z.clone()
+                            z.requires_grad_(True)
 
-                    # Show user we're changing prompt                                
-                    print(args.prompts)
-                    
-                    for prompt in args.prompts:
-                        txt, weight, stop = split_prompt(prompt)
-                        embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
-                        pMs.append(Prompt(embed, weight, stop).to(device))
-                                        
-                    '''
-                    # Smooth test
-                    smoother = args.zoom_frequency * 15 # smoothing over x frames
-                    variable_lr = args.step_size * 0.25
-                    opt = get_opt(args.optimiser, variable_lr)
-                    '''
-                    
-                    p += 1
-            
-            '''
-            if smoother > 0:
-                if smoother == 1:
-                    opt = get_opt(args.optimiser, args.step_size)
-                smoother -= 1
-            '''
-            
-            '''
-            # Messing with learning rate / optimisers
-            if i % 225 == 0 and i > 0:
-                variable_optimiser_item = random.choice(optimiser_list)
-                variable_optimiser = variable_optimiser_item[0]
-                variable_lr = variable_optimiser_item[1]
+                            # Re-create optimiser
+                            opt = get_opt(args.optimiser, args.step_size)
+                        
+                        # Next
+                        j += 1
                 
-                opt = get_opt(variable_optimiser, variable_lr)
-                print("New opt: %s, lr= %f" %(variable_optimiser,variable_lr)) 
-            '''
-            
-
-            # Training time
-            train(i)
-            
-            # Ready to stop yet?
-            if i == args.max_iterations:
-                if not args.video_style_dir:
-                    # we're done
-                    break
-                else:                    
-                    if this_video_frame == (num_video_frames - 1):
-                        # we're done
-                        make_styled_video = True
-                        break
-                    else:
-                        # Next video frame
-                        this_video_frame += 1
-
-                        # Reset the iteration count
-                        i = -1
-                        pbar.reset()
-                                                
-                        # Load the next frame, reset a few options - same filename, different directory
-                        args.init_image = video_frame_list[this_video_frame]
-                        print("Next frame: ", args.init_image)
-
-                        if args.seed is None:
-                            seed = torch.seed()
-                        else:
-                            seed = args.seed  
-                        torch.manual_seed(seed)
-                        print("Seed: ", seed)
-
-                        filename = os.path.basename(args.init_image)
-                        args.output = os.path.join(cwd, "steps", filename)
-
-                        # Load and resize image
-                        img = Image.open(args.init_image)
-                        pil_image = img.convert('RGB')
-                        pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
-                        pil_tensor = TF.to_tensor(pil_image)
+                # Change text prompt
+                if args.prompt_frequency > 0:
+                    if i % args.prompt_frequency == 0 and i > 0:
+                        # In case there aren't enough phrases, just loop
+                        if p >= len(all_phrases):
+                            p = 0
                         
-                        # Re-encode
-                        z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
-                        z_orig = z.clone()
-                        z.requires_grad_(True)
+                        pMs = []
+                        args.prompts = all_phrases[p]
 
-                        # Re-create optimiser
+                        # Show user we're changing prompt                                
+                        print(args.prompts)
+                        
+                        for prompt in args.prompts:
+                            txt, weight, stop = split_prompt(prompt)
+                            embed = perceptor.encode_text(clip.tokenize(txt).to(device)).float()
+                            pMs.append(Prompt(embed, weight, stop).to(device))
+                                            
+                        '''
+                        # Smooth test
+                        smoother = args.zoom_frequency * 15 # smoothing over x frames
+                        variable_lr = args.step_size * 0.25
+                        opt = get_opt(args.optimiser, variable_lr)
+                        '''
+                        
+                        p += 1
+                
+                '''
+                if smoother > 0:
+                    if smoother == 1:
                         opt = get_opt(args.optimiser, args.step_size)
+                    smoother -= 1
+                '''
+                
+                '''
+                # Messing with learning rate / optimisers
+                if i % 225 == 0 and i > 0:
+                    variable_optimiser_item = random.choice(optimiser_list)
+                    variable_optimiser = variable_optimiser_item[0]
+                    variable_lr = variable_optimiser_item[1]
+                    
+                    opt = get_opt(variable_optimiser, variable_lr)
+                    print("New opt: %s, lr= %f" %(variable_optimiser,variable_lr)) 
+                '''
+                
 
-            i += 1
-            pbar.update()
-except KeyboardInterrupt:
-    pass
+                # Training time
+                train(i)
+                
+                # Ready to stop yet?
+                if i == args.max_iterations:
+                    if not args.video_style_dir:
+                        # we're done
+                        break
+                    else:                    
+                        if this_video_frame == (num_video_frames - 1):
+                            # we're done
+                            make_styled_video = True
+                            break
+                        else:
+                            # Next video frame
+                            this_video_frame += 1
 
-# All done :)
+                            # Reset the iteration count
+                            i = -1
+                            pbar.reset()
+                                                    
+                            # Load the next frame, reset a few options - same filename, different directory
+                            args.init_image = video_frame_list[this_video_frame]
+                            print("Next frame: ", args.init_image)
 
-# Video generation
-if args.make_video or args.make_zoom_video:
-    init_frame = 1      # Initial video frame
-    if args.make_zoom_video:
-        last_frame = j
-    else:
-        last_frame = i  # This will raise an error if that number of frames does not exist.
+                            if args.seed is None:
+                                seed = torch.seed()
+                            else:
+                                seed = args.seed  
+                            torch.manual_seed(seed)
+                            print("Seed: ", seed)
 
-    length = args.video_length # Desired time of the video in seconds
+                            filename = os.path.basename(args.init_image)
+                            args.output = os.path.join(cwd, "steps", filename)
 
-    min_fps = 10
-    max_fps = 60
+                            # Load and resize image
+                            img = Image.open(args.init_image)
+                            pil_image = img.convert('RGB')
+                            pil_image = pil_image.resize((sideX, sideY), Image.LANCZOS)
+                            pil_tensor = TF.to_tensor(pil_image)
+                            
+                            # Re-encode
+                            z, *_ = model.encode(pil_tensor.to(device).unsqueeze(0) * 2 - 1)
+                            z_orig = z.clone()
+                            z.requires_grad_(True)
 
-    total_frames = last_frame-init_frame
+                            # Re-create optimiser
+                            opt = get_opt(args.optimiser, args.step_size)
 
-    frames = []
-    tqdm.write('Generating video...')
-    for i in range(init_frame,last_frame):
-        temp = Image.open("./steps/"+ str(i) +'.png')
-        keep = temp.copy()
-        frames.append(keep)
-        temp.close()
-    
-    if args.output_video_fps > 9:
-        # Hardware encoding and video frame interpolation
-        print("Creating interpolated frames...")
-        ffmpeg_filter = f"minterpolate='mi_mode=mci:me=hexbs:me_mode=bidir:mc_mode=aobmc:vsbmc=1:mb_size=8:search_param=32:fps={args.output_video_fps}'"
-        output_file = re.compile('\.png$').sub('.mp4', args.output)
-        try:
-            p = Popen(['ffmpeg',
-                       '-y',
-                       '-f', 'image2pipe',
-                       '-vcodec', 'png',
-                       '-r', str(args.input_video_fps),               
-                       '-i',
-                       '-',
-                       '-b:v', '10M',
-                       '-vcodec', 'h264_nvenc',
-                       '-pix_fmt', 'yuv420p',
-                       '-strict', '-2',
-                       '-filter:v', f'{ffmpeg_filter}',
-                       '-metadata', f'comment={args.prompts}',
-                   output_file], stdin=PIPE)
-        except FileNotFoundError:
-            print("ffmpeg command failed - check your installation")
-        for im in tqdm(frames):
-            im.save(p.stdin, 'PNG')
-        p.stdin.close()
-        p.wait()
-    else:
-        # CPU
-        fps = np.clip(total_frames/length,min_fps,max_fps)
-        output_file = re.compile('\.png$').sub('.mp4', args.output)
-        try:
-            p = Popen(['ffmpeg',
-                       '-y',
-                       '-f', 'image2pipe',
-                       '-vcodec', 'png',
-                       '-r', str(fps),
-                       '-i',
-                       '-',
-                       '-vcodec', 'libx264',
-                       '-r', str(fps),
-                       '-pix_fmt', 'yuv420p',
-                       '-crf', '17',
-                       '-preset', 'veryslow',
-                       '-metadata', f'comment={args.prompts}',
-                       output_file], stdin=PIPE)
-        except FileNotFoundError:
-            print("ffmpeg command failed - check your installation")        
-        for im in tqdm(frames):
-            im.save(p.stdin, 'PNG')
-        p.stdin.close()
-        p.wait()     
+                i += 1
+                pbar.update()
+    except KeyboardInterrupt:
+        pass
+
+    # All done :)
+
+    # Video generation
+    if args.make_video or args.make_zoom_video:
+        init_frame = 1      # Initial video frame
+        if args.make_zoom_video:
+            last_frame = j
+        else:
+            last_frame = i  # This will raise an error if that number of frames does not exist.
+
+        length = args.video_length # Desired time of the video in seconds
+
+        min_fps = 10
+        max_fps = 60
+
+        total_frames = last_frame-init_frame
+
+        frames = []
+        tqdm.write('Generating video...')
+        for i in range(init_frame,last_frame):
+            temp = Image.open("./steps/"+ str(i) +'.png')
+            keep = temp.copy()
+            frames.append(keep)
+            temp.close()
+        
+        if args.output_video_fps > 9:
+            # Hardware encoding and video frame interpolation
+            print("Creating interpolated frames...")
+            ffmpeg_filter = f"minterpolate='mi_mode=mci:me=hexbs:me_mode=bidir:mc_mode=aobmc:vsbmc=1:mb_size=8:search_param=32:fps={args.output_video_fps}'"
+            output_file = re.compile('\.png$').sub('.mp4', args.output)
+            try:
+                p = Popen(['ffmpeg',
+                        '-y',
+                        '-f', 'image2pipe',
+                        '-vcodec', 'png',
+                        '-r', str(args.input_video_fps),               
+                        '-i',
+                        '-',
+                        '-b:v', '10M',
+                        '-vcodec', 'h264_nvenc',
+                        '-pix_fmt', 'yuv420p',
+                        '-strict', '-2',
+                        '-filter:v', f'{ffmpeg_filter}',
+                        '-metadata', f'comment={args.prompts}',
+                    output_file], stdin=PIPE)
+            except FileNotFoundError:
+                print("ffmpeg command failed - check your installation")
+            for im in tqdm(frames):
+                im.save(p.stdin, 'PNG')
+            p.stdin.close()
+            p.wait()
+        else:
+            # CPU
+            fps = np.clip(total_frames/length,min_fps,max_fps)
+            output_file = re.compile('\.png$').sub('.mp4', args.output)
+            try:
+                p = Popen(['ffmpeg',
+                        '-y',
+                        '-f', 'image2pipe',
+                        '-vcodec', 'png',
+                        '-r', str(fps),
+                        '-i',
+                        '-',
+                        '-vcodec', 'libx264',
+                        '-r', str(fps),
+                        '-pix_fmt', 'yuv420p',
+                        '-crf', '17',
+                        '-preset', 'veryslow',
+                        '-metadata', f'comment={args.prompts}',
+                        output_file], stdin=PIPE)
+            except FileNotFoundError:
+                print("ffmpeg command failed - check your installation")        
+            for im in tqdm(frames):
+                im.save(p.stdin, 'PNG')
+            p.stdin.close()
+            p.wait()     
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
